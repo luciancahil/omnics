@@ -30,6 +30,8 @@ class OmnicsDataset(Dataset):
         with self.env.begin() as txn:
             print("hello!")
             self.len =  pickle.loads(txn.get(str("len").encode()))
+            self.input_dims = pickle.loads(txn.get(str("inputs").encode()))
+            self.num_graphs = len(self.input_dims)
             
     def __getitem__(self, idx):
         with self.env.begin() as txn:
@@ -39,6 +41,13 @@ class OmnicsDataset(Dataset):
     
     def __len__(self):
         return self.len
+    
+    def get_inputs_dims(self):
+        return self.input_dims
+
+    def get_num_graphs(self):
+        return self.num_graphs
+
 
 # Program Collate Function.
 
