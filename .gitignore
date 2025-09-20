@@ -1,2 +1,6 @@
 lmdb
 
+kegg_path/archive
+kegg_path/kgmls
+kegg_path/processed
+*/HTML*

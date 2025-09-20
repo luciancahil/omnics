@@ -76,6 +76,7 @@ def collate(batch):
     # Batch the Data objects using PyTorch Geometric's Batch.from_data_list
     for i, X in enumerate(Xs):
         Xs[i] = Batch.from_data_list(X)
+        
     Ys = torch.tensor(Ys)
 
 
