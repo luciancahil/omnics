@@ -1,2 +1,6 @@
 lmdb
 
+kegg_path/*/*
+
+!kegg_path/kgmls/get_kgml.sh
+*.h5mu
