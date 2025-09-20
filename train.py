@@ -69,9 +69,9 @@ def collate(batch):
 # main function with hyperparameters.
 
 
-if  __name__ == "__main__":
+def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
     dataset = OmnicsDataset()
-    batch_size = 32
+
     # try out the collate function with the batch thing.
 
 
@@ -88,7 +88,7 @@ if  __name__ == "__main__":
 
 
 
-    split = random_split(dataset, [0.7, 0.2, 0.1])
+    split = random_split(dataset, split_proportions)
     train_dataset = split[0]
     val_dataset = split[1]
 
@@ -110,3 +110,6 @@ if  __name__ == "__main__":
         breakpoint()
 
     print(time.time())
+
+if  __name__ == "__main__":
+    main()
