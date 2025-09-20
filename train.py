@@ -7,10 +7,64 @@ import pickle
 from torch_geometric.data import Batch
 import torch
 import time
-
+import torch.nn as nn
+from torch_geometric.nn import GATConv, GCNConv, TAGConv, knn
+from torch.nn import Linear, Dropout, Softmax
 # Program dataset
 
-NUM_GRAPHS = 320
+
+class GraphNet(nn.Module):
+    def __init__(self, input_dims, num_classes=2, hidden_dim=16, hidden_layers=8, hidden_dropout=0.5):
+        super(GraphNet, self).__init__()
+        self.graph_layer = nn.ModuleList([GATConv(input_dim, hidden_dim) for input_dim in input_dims])
+        self.num_graphs = len(self.graph_layer) 
+        self.post_graph_conv = nn.ModuleList([Linear(hidden_dim, 1) for _ in self.graph_layer])
+
+
+        self.pooled_convs = [nn.Sequential(Linear(self.num_graphs, hidden_dim), Dropout(hidden_dropout))]
+
+        self.pooled_convs.extend([nn.Sequential(Linear(hidden_dim, hidden_dim), Dropout(hidden_dropout))
+                                  for _ in range(hidden_layers)])
+        
+        self.pooled_convs.append(Linear(hidden_dim, num_classes))
+
+        self.pooled_convs = nn.ModuleList(self.pooled_convs)
+
+        self.softMax = Softmax()
+
+
+    def forward(self, input_graphs):
+        mlp_input = []
+        # once said and done, this should be batch_size * num_graphs
+
+        # starts off this way, because we want to transpose
+        pooled = torch.zeros((0, input_graphs[0].ptr.shape[0]-1))
+
+        for i, graph in enumerate(input_graphs):
+            # run through 
+            graph_output = (self.graph_layer[i](graph.x, graph.edge_index))
+            graph_output = self.post_graph_conv[i](graph_output)
+            graph_output = graph_output.squeeze()
+            pointers = graph.ptr
+            cur_pooled = []
+
+
+            for p in range(len(pointers[:-1])):
+                start = pointers[p]
+                end = pointers[p + 1]
+
+                cur_pooled.append(torch.mean(graph_output[start:end]))
+
+            cur_pooled = torch.tensor(cur_pooled).unsqueeze(0)
+            pooled = torch.cat((pooled, cur_pooled), dim=0)
+        
+
+        pooled = pooled.T
+
+        for layer in self.pooled_convs:
+            pooled = layer(pooled)
+        
+        return pooled
 
 class OmnicsDataset(Dataset):
     def __init__(self):
@@ -42,7 +96,7 @@ class OmnicsDataset(Dataset):
     def __len__(self):
         return self.len
     
-    def get_inputs_dims(self):
+    def get_input_dims(self):
         return self.input_dims
 
     def get_num_graphs(self):
@@ -91,6 +145,7 @@ def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
     split = random_split(dataset, split_proportions)
     train_dataset = split[0]
     val_dataset = split[1]
+    test_dataset = split[2]
 
     # alright, what do I want to do?
     # find the tallest one.
@@ -104,12 +159,16 @@ def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate)
     val_loader = DataLoader(val_dataset, batch_size = batch_size, collate_fn=collate)
+    test_loader = DataLoader(test_dataset, batch_size = batch_size, collate_fn=collate)
 
-    print(time.time())
+    model = GraphNet(dataset.get_input_dims())
+
     for batch in train_loader:
+        inputs, targets, labels = batch
+        outputs = model(inputs)
+
         breakpoint()
 
-    print(time.time())
 
 if  __name__ == "__main__":
     main()
