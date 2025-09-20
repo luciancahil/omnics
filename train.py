@@ -166,6 +166,9 @@ def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
     for batch in train_loader:
         inputs, targets, labels = batch
         outputs = model(inputs)
+        loss_fn = nn.CrossEntropyLoss()
+
+        loss = loss_fn(outputs, targets)
 
         breakpoint()
 
