@@ -38,6 +38,7 @@ gene_matrix = []
 
 all_edges = []
 all_masks = []
+all_gene_counts = []
 
 for graph in graphs_list:
     folder = "./processed/{}".format(graph)
@@ -112,6 +113,7 @@ for graph in graphs_list:
         for index in indicies:
             masks[i][index] = True
     
+    all_gene_counts.append(len(genes))
     all_edges.append(torch.tensor(edges))
     gene_matrix.append(genes)
     all_masks.append(masks)
@@ -120,7 +122,7 @@ for graph in graphs_list:
 # I want to end with a list, and a mask for each node.
 # nodes and genes should be sorted alphabetically.
 # screw memory for now.
-lmdb_path = "./lmdb"
+lmdb_path = "../lmdb"
 os.makedirs(os.path.dirname(lmdb_path), exist_ok=True)
 env = lmdb.open(lmdb_path, map_size=2 * 10**9)  # Adjust map_size as needed
 with env.begin(write=True) as txn:
@@ -156,6 +158,7 @@ with env.begin(write=True) as txn:
     
     txn.put(str("len").encode(), pickle.dumps(len(adata)))
     txn.put(str("num_graphs").encode(), pickle.dumps(len(all_edges)))
+    txn.put(str("inputs").encode(), pickle.dumps(all_gene_counts))
 
 # okay, I need to make the graphs next:
 

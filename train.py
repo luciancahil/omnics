@@ -6,6 +6,7 @@ import lmdb
 import pickle
 from torch_geometric.data import Batch
 import torch
+import time
 
 # Program dataset
 
@@ -40,50 +41,21 @@ class OmnicsDataset(Dataset):
         return self.len
 
 # Program Collate Function.
+
 def collate(batch):
-    """
-    Custom collate function to handle batching of PyTorch Geometric Data objects
-    along with None values.
+    # batch is: [([Data_0, Data_1, ..., Data_{k-1}], y, label), ...]
+    graphs_list, ys, labels = zip(*batch)  # unzip once
 
-    Args:
-        batch (list): A list of tuples, where each tuple contains elements returned by __getitem__.
+    # Transpose: [N][K] -> [K][N], so we can batch position-wise
+    # Each 'slot' is the i-th graph across the batch
+    slots = zip(*graphs_list)
 
-    Returns:
-        tuple: A tuple where:
-            - Tensor elements are batched (if any),
-            - PyTorch Geometric Data objects are batched into a Batch object,
-            - None elements are kept as None.
-    """
+    batched_graphs = [Batch.from_data_list(slot) for slot in slots]
 
-    #         txn.put(str(i).encode(), pickle.dumps((X, response, id)))
+    y = torch.as_tensor(ys)  # avoids copy if already tensor-like
 
-    # Initialize lists to hold batched elements
-    Xs = [[] for _ in range(NUM_GRAPHS)]
-    Ys = []
-    labels = []
+    return batched_graphs, y, labels
 
-    # Iterate over each sample in the batch
-    for sample in batch:
-        # Unpack the tuple
-        # Append Data objects to their respective lists
-        for i, graph in enumerate(sample[0]):
-            Xs[i].append(graph)
-        Ys.append(sample[1])
-        labels.append(sample[2])
-
-        # No action needed for None elements as they are consistently None
-
-    # Batch the Data objects using PyTorch Geometric's Batch.from_data_list
-    for i, X in enumerate(Xs):
-        Xs[i] = Batch.from_data_list(X)
-    Ys = torch.tensor(Ys)
-
-
-
-
-    # Return the batched tuple
-    return (Xs, Ys, labels)
-# 1 function for both train and eval.
 
 # main function with hyperparameters.
 
@@ -124,7 +96,8 @@ if  __name__ == "__main__":
     train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate)
     val_loader = DataLoader(val_dataset, batch_size = batch_size, collate_fn=collate)
 
+    print(time.time())
     for batch in train_loader:
+        breakpoint()
 
-
-       breakpoint()
+    print(time.time())
