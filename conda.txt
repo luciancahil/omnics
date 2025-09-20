@@ -1,0 +1,5 @@
+conda create -n last_omnics python=3.10
+pip install muon==0.1.7
+pip install lmdb==1.7.3
+pip install torch==2.8.0
+conda install conda-forge::pytorch_geometric=2.6.1
