@@ -9,6 +9,7 @@ import torch
 
 # Program dataset
 
+NUM_GRAPHS = 320
 
 class OmnicsDataset(Dataset):
     def __init__(self):
@@ -57,7 +58,7 @@ def collate(batch):
     #         txn.put(str(i).encode(), pickle.dumps((X, response, id)))
 
     # Initialize lists to hold batched elements
-    Xs = []
+    Xs = [[] for _ in range(NUM_GRAPHS)]
     Ys = []
     labels = []
 
@@ -65,14 +66,16 @@ def collate(batch):
     for sample in batch:
         # Unpack the tuple
         # Append Data objects to their respective lists
-        Xs.extend(sample[0])
+        for i, graph in enumerate(sample[0]):
+            Xs[i].append(graph)
         Ys.append(sample[1])
         labels.append(sample[2])
 
         # No action needed for None elements as they are consistently None
 
     # Batch the Data objects using PyTorch Geometric's Batch.from_data_list
-    Xs = Batch.from_data_list(Xs)
+    for i, X in enumerate(Xs):
+        Xs[i] = Batch.from_data_list(X)
     Ys = torch.tensor(Ys)
 
 
