@@ -118,6 +118,7 @@ for graph in graphs_list:
 
     if(len(edges[0]) == 0):
         print("No valid edges: {}".format(graph))
+        continue
 
     genes = [g for g in genes]
     genes.sort()
@@ -138,7 +139,6 @@ for graph in graphs_list:
     all_edges.append(torch.tensor(edges))
     gene_matrix.append(genes)
     all_masks.append(masks)
-
 
 # I want to end with a list, and a mask for each node.
 # nodes and genes should be sorted alphabetically.

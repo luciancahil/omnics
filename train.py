@@ -12,6 +12,7 @@ from torch_geometric.nn import GATConv, GCNConv, TAGConv, knn
 from torch.nn import Linear, Dropout, Softmax
 # Program dataset
 
+LOSS_FN = nn.CrossEntropyLoss()
 
 class GraphNet(nn.Module):
     def __init__(self, input_dims, num_classes=2, hidden_dim=16, hidden_layers=8, hidden_dropout=0.5):
@@ -41,7 +42,6 @@ class GraphNet(nn.Module):
         pooled = torch.zeros((0, input_graphs[0].ptr.shape[0]-1))
 
         for i, graph in enumerate(input_graphs):
-            # run through 
             graph_output = (self.graph_layer[i](graph.x, graph.edge_index))
             graph_output = self.post_graph_conv[i](graph_output)
             graph_output = graph_output.squeeze()
@@ -123,6 +123,35 @@ def collate(batch):
 # main function with hyperparameters.
 
 
+def train_epoch(epoch, model, train_loader):
+    model.train()
+    total_loss = 0
+    total_acc = 0
+    num_samples = 0
+    for batch in train_loader:
+        loss, acc = get_loss_and_acc(model, batch)
+        batch_size = len(batch[0][0].ptr)
+
+        num_samples += batch_size
+        total_loss += loss * batch_size
+        total_acc += acc * batch_size
+
+    print("Epoch {}: Loss = {:.4f} and Accuracy = {:.4f}".format(epoch, total_loss / num_samples, total_acc / num_samples))
+
+
+
+def get_loss_and_acc(model, batch):
+
+        inputs, targets, labels = batch
+        outputs = model(inputs)
+        predictions = torch.argmax(outputs, dim=1)
+        accuracy = sum(predictions==targets)/len(outputs)
+
+        loss = LOSS_FN(outputs, targets)
+
+
+        return loss, accuracy
+
 def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
     dataset = OmnicsDataset()
 
@@ -163,15 +192,7 @@ def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
 
     model = GraphNet(dataset.get_input_dims())
 
-    for batch in train_loader:
-        inputs, targets, labels = batch
-        outputs = model(inputs)
-        loss_fn = nn.CrossEntropyLoss()
-
-        loss = loss_fn(outputs, targets)
-
-        breakpoint()
-
+    train_epoch(0, model, train_loader)
 
 if  __name__ == "__main__":
     main()
