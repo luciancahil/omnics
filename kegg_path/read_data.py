@@ -63,7 +63,7 @@ for graph in graphs_list:
         nodes.add(dest)
 
 
-    # get the genes
+    # get the genes and bad nodes (bad edges are not gene nodes)
     node_gene_map = dict()
     genes = set()
     bad_nodes = []
@@ -113,8 +113,11 @@ for graph in graphs_list:
     edges[0] = [node_index_dict[n] for n in edges[0]]
     edges[1] = [node_index_dict[n] for n in edges[1]]
     if(len(genes) == 0):
-        print("Bad: {}".format(graph))
+        print("No valid nodes: {}".format(graph))
         continue
+
+    if(len(edges[0]) == 0):
+        print("No valid edges: {}".format(graph))
 
     genes = [g for g in genes]
     genes.sort()
