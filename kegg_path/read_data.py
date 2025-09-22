@@ -187,7 +187,7 @@ with env.begin(write=True) as txn:
     txn.put(str("inputs").encode(), pickle.dumps(all_gene_counts))
 
 
-print(response)
+print(response_set)
 # okay, I need to make the graphs next:
 
 # some of them have no edges.
