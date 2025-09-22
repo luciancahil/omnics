@@ -51,33 +51,22 @@ for graph in graphs_list:
 
     node_df = pd.read_csv(node_path, sep='\t')
 
-    # what do I want? A list of genes, a matrix of gene data.
 
-    edges = [[],[]]
+    edge_set = set()
     nodes = set()
     for i in range(df.shape[0]):
 
         source = df.iloc[i]['source'].item()
         dest = df.iloc[i]['target'].item()
-        edges[0].append(source)
-        edges[1].append(dest)
+        edge_set.add((source, dest))
         nodes.add(source)
         nodes.add(dest)
-    
-    nodes = [n for n in nodes]
-    nodes.sort()
 
-    node_index_dict = dict()
 
-    # make the edges the smallest number possible
-    for i, node in enumerate(nodes):
-        node_index_dict[node] = i
-    edges[0] = [node_index_dict[n] for n in edges[0]]
-    edges[1] = [node_index_dict[n] for n in edges[1]]
-
+    # get the genes
     node_gene_map = dict()
-
     genes = set()
+    bad_nodes = []
 
     for i in range(node_df.shape[0]):
         node = node_df.iloc[i]
@@ -87,13 +76,42 @@ for graph in graphs_list:
         if id not in nodes:
             continue
 
+        if node.type != 'gene':
+            bad_nodes.append(node.id.item())
+
         node_genes = node['name'].replace("...","").split(", ")
         node_genes = [n for n in node_genes if n in all_gene_set]
         node_genes.sort()
 
         node_gene_map[id] = node_genes
         genes.update(node_genes)
+    
+    
+    # remove bad nodes.
+    nodes = [n for n in nodes if n not in bad_nodes]
 
+    # remove bad edges
+    edges = [[], []]
+    for edge in edge_set:
+        if(edge[0] in bad_nodes or edge[1] in bad_nodes):
+            continue
+
+        edges[0].append(edge[0])
+        edges[1].append(edge[1])
+
+
+
+
+    # make the edges the smallest number possible
+
+    nodes.sort()
+
+    node_index_dict = dict()
+
+    for i, node in enumerate(nodes):
+        node_index_dict[node] = i
+    edges[0] = [node_index_dict[n] for n in edges[0]]
+    edges[1] = [node_index_dict[n] for n in edges[1]]
     if(len(genes) == 0):
         print("Bad: {}".format(graph))
         continue
@@ -125,6 +143,8 @@ for graph in graphs_list:
 lmdb_path = "../lmdb"
 os.makedirs(os.path.dirname(lmdb_path), exist_ok=True)
 env = lmdb.open(lmdb_path, map_size=2 * 10**9)  # Adjust map_size as needed
+
+response_set = set()
 with env.begin(write=True) as txn:
 
     for i in range(len(adata)):
@@ -154,12 +174,20 @@ with env.begin(write=True) as txn:
             input_graphs.append(graph)
         
         print(i)
+        response_set.add(response)
         txn.put(str(i).encode(), pickle.dumps((input_graphs, response, id)))
     
+    # the number of sampes
     txn.put(str("len").encode(), pickle.dumps(len(adata)))
+
+    # the number of unique graphs (redundant?)
     txn.put(str("num_graphs").encode(), pickle.dumps(len(all_edges)))
+
+    # a vector of input dimensions for each graph.
     txn.put(str("inputs").encode(), pickle.dumps(all_gene_counts))
 
+
+print(response)
 # okay, I need to make the graphs next:
 
 # some of them have no edges.
