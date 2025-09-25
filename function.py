@@ -1,16 +1,21 @@
 import numpy as np
 import argparse
-
+from train import main
 def square_sin(x):
     assert(len(x) == 2)
     return (x[0] - 3.1)**2 + 2 * (np.sin(x[1]))**2
 
 
+def train(x):
+    assert(len(x) == 5)
 
+    return(main(x[0], x[1], x[2], x[3], x[4]))
 
 def choose_function(name):
     if name == "square_sin":
         return square_sin
+    elif name == "train":
+        return train
     else:
         raise(ValueError("Function {} not defined".format(name)))
 

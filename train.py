@@ -164,10 +164,10 @@ def kfold_split(dataset, k=5, seed=42):
         folds.append((train_idx, val_idx))
     return folds
 
-def main(batch_size = 32, lr=0.001):
+def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_decay=1e-6):
     dataset = OmnicsDataset()
     max_epochs = 400
-
+    batch_size = 32
     # try out the collate function with the batch thing.
 
 
@@ -211,8 +211,8 @@ def main(batch_size = 32, lr=0.001):
         val_loader = DataLoader(val_dataset, batch_size = batch_size, collate_fn=collate)
         test_loader = DataLoader(test_dataset, batch_size = batch_size, collate_fn=collate)
 
-        model = GraphNet(dataset.get_input_dims())
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+        model = GraphNet(dataset.get_input_dims(), num_classes=2, hidden_dim=hidden_dim, hidden_layers=hidden_layers, hidden_dropout=hidden_dropout)
+        optimizer = optim.Adam(model.parameters(), lr=lr,weight_decay=weight_decay)
         scheduler = ReduceLROnPlateau(optimizer)
         model.train()
 
@@ -221,6 +221,7 @@ def main(batch_size = 32, lr=0.001):
             if i % 5 == 0:
                 val_loss = train_epoch("Validation", i, model, val_loader, optimizer=None)
                 scheduler.step(val_loss)
+        
 
 if  __name__ == "__main__":
     main()
