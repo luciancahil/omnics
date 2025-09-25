@@ -191,6 +191,7 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
 
     folds = kfold_split(train_val_dataset, cross_validation_splits)
     
+    best_val_list = []
 
     # alright, what do I want to do?
     # find the tallest one.
@@ -203,10 +204,10 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
     # Then toy with the collate function. 
 
     for (train_idx, val_idx) in folds:
+        best_val = 0
         train_dataset = Subset(dataset, train_idx)
         val_dataset   = Subset(dataset, val_idx)        
 
-        breakpoint()
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate)
         val_loader = DataLoader(val_dataset, batch_size = batch_size, collate_fn=collate)
         test_loader = DataLoader(test_dataset, batch_size = batch_size, collate_fn=collate)
@@ -221,6 +222,12 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
             if i % 5 == 0:
                 val_loss = train_epoch("Validation", i, model, val_loader, optimizer=None)
                 scheduler.step(val_loss)
+                if(val_loss < best_val):
+                    best_val = val_loss
+        
+        best_val_list.append(best_val)
+
+    return sum(best_val_list) / len(best_val_list)
         
 
 if  __name__ == "__main__":
