@@ -1,7 +1,7 @@
 # Imports
 # getitem must return: None, input_graph, target_graph, null, null.
 import os
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split, Subset
 import lmdb
 import pickle
 from torch_geometric.data import Batch
@@ -9,61 +9,48 @@ import torch
 import time
 import torch.nn as nn
 from torch_geometric.nn import GATConv, GCNConv, TAGConv, knn
-from torch.nn import Linear, Dropout, Softmax
+from torch.nn import Linear, Dropout, Softmax, LeakyReLU
+import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch_geometric.nn import global_mean_pool
+
 # Program dataset
 
 LOSS_FN = nn.CrossEntropyLoss()
 
 class GraphNet(nn.Module):
-    def __init__(self, input_dims, num_classes=2, hidden_dim=16, hidden_layers=8, hidden_dropout=0.5):
+    def __init__(self, input_dims, num_classes=2, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0):
         super(GraphNet, self).__init__()
         self.graph_layer = nn.ModuleList([GATConv(input_dim, hidden_dim) for input_dim in input_dims])
         self.num_graphs = len(self.graph_layer) 
         self.post_graph_conv = nn.ModuleList([Linear(hidden_dim, 1) for _ in self.graph_layer])
 
 
-        self.pooled_convs = [nn.Sequential(Linear(self.num_graphs, hidden_dim), Dropout(hidden_dropout))]
+        self.pooled_convs = [nn.Sequential(Linear(self.num_graphs, hidden_dim), Dropout(hidden_dropout), LeakyReLU())]
 
-        self.pooled_convs.extend([nn.Sequential(Linear(hidden_dim, hidden_dim), Dropout(hidden_dropout))
+        self.pooled_convs.extend([nn.Sequential(Linear(hidden_dim, hidden_dim), Dropout(hidden_dropout), LeakyReLU())
                                   for _ in range(hidden_layers)])
         
         self.pooled_convs.append(Linear(hidden_dim, num_classes))
 
         self.pooled_convs = nn.ModuleList(self.pooled_convs)
 
-        self.softMax = Softmax()
-
 
     def forward(self, input_graphs):
-        mlp_input = []
-        # once said and done, this should be batch_size * num_graphs
-
-        # starts off this way, because we want to transpose
-        pooled = torch.zeros((0, input_graphs[0].ptr.shape[0]-1))
+        device = input_graphs[0].x.device
+        num_graphs_in_batch = input_graphs[0].ptr.numel() - 1
+        pooled = torch.empty((0, num_graphs_in_batch), device=device)
 
         for i, graph in enumerate(input_graphs):
-            graph_output = (self.graph_layer[i](graph.x, graph.edge_index))
-            graph_output = self.post_graph_conv[i](graph_output)
-            graph_output = graph_output.squeeze()
-            pointers = graph.ptr
-            cur_pooled = []
-
-
-            for p in range(len(pointers[:-1])):
-                start = pointers[p]
-                end = pointers[p + 1]
-
-                cur_pooled.append(torch.mean(graph_output[start:end]))
-
-            cur_pooled = torch.tensor(cur_pooled).unsqueeze(0)
+            out = self.graph_layer[i](graph.x, graph.edge_index)        # [num_nodes, hidden]
+            out = self.post_graph_conv[i](out).squeeze(-1)              # [num_nodes]
+            cur_pooled = global_mean_pool(out, graph.batch)             # [B]
+            cur_pooled = cur_pooled.unsqueeze(0)
             pooled = torch.cat((pooled, cur_pooled), dim=0)
-        
 
-        pooled = pooled.T
-
+        pooled = pooled.T  # [B, num_input_graphs]
         for layer in self.pooled_convs:
             pooled = layer(pooled)
-        
         return pooled
 
 class OmnicsDataset(Dataset):
@@ -123,37 +110,63 @@ def collate(batch):
 # main function with hyperparameters.
 
 
-def train_epoch(epoch, model, train_loader):
-    model.train()
-    total_loss = 0
-    total_acc = 0
+def train_epoch(epoch_type, epoch, model, loader, optimizer=None):
+    is_train = optimizer is not None
+    if is_train:
+        model.train()
+    else:
+        model.eval()
+
+    total_loss = 0.0
+    total_correct = 0
     num_samples = 0
-    for batch in train_loader:
-        loss, acc = get_loss_and_acc(model, batch)
-        batch_size = len(batch[0][0].ptr)
 
-        num_samples += batch_size
-        total_loss += loss * batch_size
-        total_acc += acc * batch_size
+    for batch in loader:
+        if is_train:
+            optimizer.zero_grad()
+            loss, acc, bs, correct = get_loss_and_acc(model, batch)
+            loss.backward()
+            optimizer.step()
+        else:
+            with torch.no_grad():
+                loss, acc, bs, correct = get_loss_and_acc(model, batch)
 
-    print("Epoch {}: Loss = {:.4f} and Accuracy = {:.4f}".format(epoch, total_loss / num_samples, total_acc / num_samples))
+        num_samples += bs
+        total_loss += float(loss.item()) * bs
+        total_correct += int(correct)
+
+    avg_loss = total_loss / max(1, num_samples)
+    avg_acc  = total_correct / max(1, num_samples)
+    print(f"{epoch_type} Epoch {epoch}: Loss = {avg_loss:.4f} and Accuracy = {avg_acc:.4f}")
+    return avg_loss
 
 
 
 def get_loss_and_acc(model, batch):
+    inputs, targets, labels = batch
+    logits = model(inputs)
+    targets = targets.to(logits.device).long()
+    preds = logits.argmax(dim=1)
+    correct = (preds == targets).sum().item()
+    loss = LOSS_FN(logits, targets)
+    acc = correct / logits.size(0)
+    return loss, acc, logits.size(0), correct
 
-        inputs, targets, labels = batch
-        outputs = model(inputs)
-        predictions = torch.argmax(outputs, dim=1)
-        accuracy = sum(predictions==targets)/len(outputs)
 
-        loss = LOSS_FN(outputs, targets)
+def kfold_split(dataset, k=5, seed=42):
+    n = len(dataset)
+    indices = torch.randperm(n, generator=torch.Generator().manual_seed(seed))
+    fold_size = n // k
+    folds = []
+    for i in range(k):
+        val_idx = indices[i*fold_size : (i+1)*fold_size]
+        train_idx = torch.cat([indices[:i*fold_size], indices[(i+1)*fold_size:]])
+        folds.append((train_idx, val_idx))
+    return folds
 
-
-        return loss, accuracy
-
-def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
+def main(batch_size = 32, lr=0.001):
     dataset = OmnicsDataset()
+    max_epochs = 400
 
     # try out the collate function with the batch thing.
 
@@ -170,11 +183,14 @@ def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
     # Okay, screw this. I can't handle this dudes. It's way to slow to process everything here
 
 
+    split_proportions=[0.9, 0.1]
+    split = random_split(dataset, split_proportions,  generator=torch.Generator().manual_seed(42))
+    train_val_dataset = split[0]
+    test_dataset = split[1]
+    cross_validation_splits = 5
 
-    split = random_split(dataset, split_proportions)
-    train_dataset = split[0]
-    val_dataset = split[1]
-    test_dataset = split[2]
+    folds = kfold_split(train_val_dataset, cross_validation_splits)
+    
 
     # alright, what do I want to do?
     # find the tallest one.
@@ -186,13 +202,25 @@ def main(batch_size = 32, split_proportions=[0.7, 0.2, 0.1]):
     # Just process the whole dataset right here, before I toss it into the loader. Good.
     # Then toy with the collate function. 
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate)
-    val_loader = DataLoader(val_dataset, batch_size = batch_size, collate_fn=collate)
-    test_loader = DataLoader(test_dataset, batch_size = batch_size, collate_fn=collate)
+    for (train_idx, val_idx) in folds:
+        train_dataset = Subset(dataset, train_idx)
+        val_dataset   = Subset(dataset, val_idx)        
 
-    model = GraphNet(dataset.get_input_dims())
+        breakpoint()
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate)
+        val_loader = DataLoader(val_dataset, batch_size = batch_size, collate_fn=collate)
+        test_loader = DataLoader(test_dataset, batch_size = batch_size, collate_fn=collate)
 
-    train_epoch(0, model, train_loader)
+        model = GraphNet(dataset.get_input_dims())
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+        scheduler = ReduceLROnPlateau(optimizer)
+        model.train()
+
+        for i in range(max_epochs):
+            avg_loss = train_epoch("Train", i, model, train_loader, optimizer)
+            if i % 5 == 0:
+                val_loss = train_epoch("Validation", i, model, val_loader, optimizer=None)
+                scheduler.step(val_loss)
 
 if  __name__ == "__main__":
     main()
