@@ -71,12 +71,12 @@ if __name__ == "__main__":
     y_min = 1000000
     x_min = None
     best_trial = -1
-
+    num_trails = 0
     trial = 0
     for line in file:
+        num_trails += 1
         parts = line.split(",")
         # + 1 for the files
-        print(parts)
         assert len(parts) == (dim + 1)
         x = [float(n) for n in parts[0:dim]]
         y = float(parts[-1])
@@ -98,6 +98,7 @@ if __name__ == "__main__":
 
     next_x = [str(n) for n in bo.suggest()]
 
+    print("Trial: {}".format(num_trails))
     print("Next: {}".format(next_x))
 
     output_file = open("./data/{}_next.txt".format(args.name), mode='w')

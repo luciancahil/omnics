@@ -15,6 +15,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch_geometric.nn import global_mean_pool
 
 # Program dataset
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 LOSS_FN = nn.CrossEntropyLoss()
 
@@ -76,7 +77,7 @@ class OmnicsDataset(Dataset):
             
     def __getitem__(self, idx):
         with self.env.begin() as txn:
-            item_bytes = txn.get(str(idx).encode())
+            item_bytes = txn.get(str(int(idx)).encode())
 
         return pickle.loads(item_bytes)
     
@@ -138,12 +139,18 @@ def train_epoch(epoch_type, epoch, model, loader, optimizer=None):
     avg_loss = total_loss / max(1, num_samples)
     avg_acc  = total_correct / max(1, num_samples)
     print(f"{epoch_type} Epoch {epoch}: Loss = {avg_loss:.4f} and Accuracy = {avg_acc:.4f}")
-    return avg_loss
+    return avg_loss, avg_acc
 
 
 
 def get_loss_and_acc(model, batch):
     inputs, targets, labels = batch
+
+    # Move every Batch to DEVICE
+    inputs = [g.to(DEVICE, non_blocking=True) for g in inputs]
+    # Move targets
+    targets = targets.to(DEVICE, non_blocking=True).long()
+
     logits = model(inputs)
     targets = targets.to(logits.device).long()
     preds = logits.argmax(dim=1)
@@ -164,10 +171,10 @@ def kfold_split(dataset, k=5, seed=42):
         folds.append((train_idx, val_idx))
     return folds
 
-def main(batch_size = 32, lr=0.001):
+def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_decay=1e-6):
     dataset = OmnicsDataset()
-    max_epochs = 400
-
+    max_epochs = 6
+    batch_size = 32
     # try out the collate function with the batch thing.
 
 
@@ -191,6 +198,7 @@ def main(batch_size = 32, lr=0.001):
 
     folds = kfold_split(train_val_dataset, cross_validation_splits)
     
+    best_val_list = []
 
     # alright, what do I want to do?
     # find the tallest one.
@@ -202,25 +210,38 @@ def main(batch_size = 32, lr=0.001):
     # Just process the whole dataset right here, before I toss it into the loader. Good.
     # Then toy with the collate function. 
 
-    for (train_idx, val_idx) in folds:
+    for (fold_num, (train_idx, val_idx)) in enumerate(folds):
+        print("Fold: {}".format(fold_num))
+        best_acc = 0
         train_dataset = Subset(dataset, train_idx)
         val_dataset   = Subset(dataset, val_idx)        
 
-        breakpoint()
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate)
-        val_loader = DataLoader(val_dataset, batch_size = batch_size, collate_fn=collate)
-        test_loader = DataLoader(test_dataset, batch_size = batch_size, collate_fn=collate)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
+                                collate_fn=collate, pin_memory=torch.cuda.is_available())
+        val_loader   = DataLoader(val_dataset,   batch_size=batch_size,
+                                collate_fn=collate, pin_memory=torch.cuda.is_available())
+        test_loader  = DataLoader(test_dataset,  batch_size=batch_size,
+                                collate_fn=collate, pin_memory=torch.cuda.is_available())
 
-        model = GraphNet(dataset.get_input_dims())
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+        model = GraphNet(dataset.get_input_dims(), num_classes=2, hidden_dim=hidden_dim, hidden_layers=hidden_layers, hidden_dropout=hidden_dropout)
+        model.to(DEVICE)
+        optimizer = optim.Adam(model.parameters(), lr=lr,weight_decay=weight_decay)
         scheduler = ReduceLROnPlateau(optimizer)
         model.train()
 
         for i in range(max_epochs):
-            avg_loss = train_epoch("Train", i, model, train_loader, optimizer)
+            _,_ = train_epoch("Train", i, model, train_loader, optimizer)
             if i % 5 == 0:
-                val_loss = train_epoch("Validation", i, model, val_loader, optimizer=None)
+                val_loss, val_acc = train_epoch("Validation", i, model, val_loader, optimizer=None)
                 scheduler.step(val_loss)
+                if(val_acc > best_acc):
+                    best_acc = val_acc
+        
+        best_val_list.append(best_acc)
+
+    # return 1 - loss because BO finds the minimum
+    return 1 - sum(best_val_list) / len(best_val_list)
+        
 
 if  __name__ == "__main__":
     main()
