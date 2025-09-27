@@ -1,4 +1,4 @@
-for i in {1..100}; do
+for i in {1..2}; do
     python function.py --name $1   
     exit_status=$?
 

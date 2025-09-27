@@ -76,7 +76,7 @@ class OmnicsDataset(Dataset):
             
     def __getitem__(self, idx):
         with self.env.begin() as txn:
-            item_bytes = txn.get(str(idx).encode())
+            item_bytes = txn.get(str(int(idx)).encode())
 
         return pickle.loads(item_bytes)
     
@@ -138,7 +138,7 @@ def train_epoch(epoch_type, epoch, model, loader, optimizer=None):
     avg_loss = total_loss / max(1, num_samples)
     avg_acc  = total_correct / max(1, num_samples)
     print(f"{epoch_type} Epoch {epoch}: Loss = {avg_loss:.4f} and Accuracy = {avg_acc:.4f}")
-    return avg_loss
+    return avg_loss, avg_acc
 
 
 
@@ -166,7 +166,7 @@ def kfold_split(dataset, k=5, seed=42):
 
 def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_decay=1e-6):
     dataset = OmnicsDataset()
-    max_epochs = 400
+    max_epochs = 6
     batch_size = 32
     # try out the collate function with the batch thing.
 
@@ -204,7 +204,7 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
     # Then toy with the collate function. 
 
     for (train_idx, val_idx) in folds:
-        best_val = 0
+        best_acc = 0
         train_dataset = Subset(dataset, train_idx)
         val_dataset   = Subset(dataset, val_idx)        
 
@@ -218,16 +218,20 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
         model.train()
 
         for i in range(max_epochs):
-            avg_loss = train_epoch("Train", i, model, train_loader, optimizer)
+            _,_ = train_epoch("Train", i, model, train_loader, optimizer)
             if i % 5 == 0:
-                val_loss = train_epoch("Validation", i, model, val_loader, optimizer=None)
+                val_loss, val_acc = train_epoch("Validation", i, model, val_loader, optimizer=None)
                 scheduler.step(val_loss)
-                if(val_loss < best_val):
-                    best_val = val_loss
+                if(val_loss > best_acc):
+                    best_acc = val_acc
         
-        best_val_list.append(best_val)
+        best_val_list.append(best_acc)
 
-    return sum(best_val_list) / len(best_val_list)
+    # return 1 - loss because BO finds the minimum
+    print(best_val_list)
+    print(sum(best_val_list))
+    print(len(best_val_list))
+    return 1 - sum(best_val_list) / len(best_val_list)
         
 
 if  __name__ == "__main__":
