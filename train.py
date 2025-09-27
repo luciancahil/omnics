@@ -15,6 +15,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch_geometric.nn import global_mean_pool
 
 # Program dataset
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 LOSS_FN = nn.CrossEntropyLoss()
 
@@ -144,6 +145,12 @@ def train_epoch(epoch_type, epoch, model, loader, optimizer=None):
 
 def get_loss_and_acc(model, batch):
     inputs, targets, labels = batch
+
+    # Move every Batch to DEVICE
+    inputs = [g.to(DEVICE, non_blocking=True) for g in inputs]
+    # Move targets
+    targets = targets.to(DEVICE, non_blocking=True).long()
+
     logits = model(inputs)
     targets = targets.to(logits.device).long()
     preds = logits.argmax(dim=1)
@@ -203,16 +210,21 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
     # Just process the whole dataset right here, before I toss it into the loader. Good.
     # Then toy with the collate function. 
 
-    for (train_idx, val_idx) in folds:
+    for (fold_num, (train_idx, val_idx)) in enumerate(folds):
+        print("Fold: {}".format(fold_num))
         best_acc = 0
         train_dataset = Subset(dataset, train_idx)
         val_dataset   = Subset(dataset, val_idx)        
 
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate)
-        val_loader = DataLoader(val_dataset, batch_size = batch_size, collate_fn=collate)
-        test_loader = DataLoader(test_dataset, batch_size = batch_size, collate_fn=collate)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
+                                collate_fn=collate, pin_memory=torch.cuda.is_available())
+        val_loader   = DataLoader(val_dataset,   batch_size=batch_size,
+                                collate_fn=collate, pin_memory=torch.cuda.is_available())
+        test_loader  = DataLoader(test_dataset,  batch_size=batch_size,
+                                collate_fn=collate, pin_memory=torch.cuda.is_available())
 
         model = GraphNet(dataset.get_input_dims(), num_classes=2, hidden_dim=hidden_dim, hidden_layers=hidden_layers, hidden_dropout=hidden_dropout)
+        model.to(DEVICE)
         optimizer = optim.Adam(model.parameters(), lr=lr,weight_decay=weight_decay)
         scheduler = ReduceLROnPlateau(optimizer)
         model.train()
@@ -222,15 +234,12 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
             if i % 5 == 0:
                 val_loss, val_acc = train_epoch("Validation", i, model, val_loader, optimizer=None)
                 scheduler.step(val_loss)
-                if(val_loss > best_acc):
+                if(val_acc > best_acc):
                     best_acc = val_acc
         
         best_val_list.append(best_acc)
 
     # return 1 - loss because BO finds the minimum
-    print(best_val_list)
-    print(sum(best_val_list))
-    print(len(best_val_list))
     return 1 - sum(best_val_list) / len(best_val_list)
         
 
