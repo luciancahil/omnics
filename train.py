@@ -111,7 +111,7 @@ def collate(batch):
 # main function with hyperparameters.
 
 
-def train_epoch(epoch_type, epoch, model, loader, optimizer=None):
+def train_epoch(epoch_type, epoch, model, loader, regularization_lambda, optimizer=None):
     is_train = optimizer is not None
     if is_train:
         model.train()
@@ -125,7 +125,7 @@ def train_epoch(epoch_type, epoch, model, loader, optimizer=None):
     for batch in loader:
         if is_train:
             optimizer.zero_grad()
-            loss, acc, bs, correct = get_loss_and_acc(model, batch)
+            loss, acc, bs, correct = get_loss_and_acc(model, batch, regularization_lambda)
             loss.backward()
             optimizer.step()
         else:
@@ -141,9 +141,14 @@ def train_epoch(epoch_type, epoch, model, loader, optimizer=None):
     print(f"{epoch_type} Epoch {epoch}: Loss = {avg_loss:.4f} and Accuracy = {avg_acc:.4f}")
     return avg_loss, avg_acc
 
+def get_reg_loss(model):
+    ann_first_layer = model.pooled_convs[0][0]
+    parameters = [p for p in ann_first_layer.parameters()]
+    weights = parameters[0]
 
+    return torch.norm(weights, p=2, dim=0).sum()
 
-def get_loss_and_acc(model, batch):
+def get_loss_and_acc(model, batch, lam):
     inputs, targets, labels = batch
 
     # Move every Batch to DEVICE
@@ -155,8 +160,14 @@ def get_loss_and_acc(model, batch):
     targets = targets.to(logits.device).long()
     preds = logits.argmax(dim=1)
     correct = (preds == targets).sum().item()
-    loss = LOSS_FN(logits, targets)
+    acc_loss = LOSS_FN(logits, targets)
     acc = correct / logits.size(0)
+
+    reg_loss = get_reg_loss(model)
+
+    loss = acc_loss + lam * reg_loss
+
+
     return loss, acc, logits.size(0), correct
 
 
@@ -171,9 +182,9 @@ def kfold_split(dataset, k=5, seed=42):
         folds.append((train_idx, val_idx))
     return folds
 
-def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_decay=1e-6):
+def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_decay=1e-6, regularization_lambda=1e-6):
     dataset = OmnicsDataset()
-    max_epochs = 6
+    max_epochs = 100
     batch_size = 32
     # try out the collate function with the batch thing.
 
@@ -230,9 +241,9 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
         model.train()
 
         for i in range(max_epochs):
-            _,_ = train_epoch("Train", i, model, train_loader, optimizer)
+            _,_ = train_epoch("Train", i, model, train_loader, regularization_lambda * float(i) / max_epochs, optimizer)
             if i % 5 == 0:
-                val_loss, val_acc = train_epoch("Validation", i, model, val_loader, optimizer=None)
+                val_loss, val_acc = train_epoch("Validation", i, model, val_loader, regularization_lambda * i / max_epochs, optimizer=None)
                 scheduler.step(val_loss)
                 if(val_acc > best_acc):
                     best_acc = val_acc
