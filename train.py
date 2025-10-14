@@ -256,3 +256,8 @@ def main( lr=0.001, hidden_dim=16, hidden_layers=8, hidden_dropout=0.0, weight_d
 
 if  __name__ == "__main__":
     main()
+
+
+"""
+Idea: run this again, but get the average train loss. Try to just increase complexity until I start overfitting, then crack up the regularization.
+"""
