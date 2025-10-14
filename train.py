@@ -130,7 +130,7 @@ def train_epoch(epoch_type, epoch, model, loader, regularization_lambda, optimiz
             optimizer.step()
         else:
             with torch.no_grad():
-                loss, acc, bs, correct = get_loss_and_acc(model, batch)
+                loss, acc, bs, correct = get_loss_and_acc(model, batch, regularization_lambda)
 
         num_samples += bs
         total_loss += float(loss.item()) * bs

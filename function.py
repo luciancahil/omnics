@@ -7,15 +7,17 @@ def square_sin(x):
 
 
 def train(x):
-    assert(len(x) == 5)
+    assert(len(x) == 6)
     
     lr = 10 ** -x[0]
     hidden_dim = int(round(x[1]))
     hidden_layers = int(round(x[2]))
     hidden_dropout = x[3]
     weight_decay = 10 ** -x[4]
+    regularization_lambda = 10 ** -x[5]
 
-    return main(lr, hidden_dim, hidden_layers, hidden_dropout, weight_decay)
+    return main(lr, hidden_dim, hidden_layers, hidden_dropout, weight_decay, regularization_lambda)
+
 def choose_function(name):
     if name == "square_sin":
         return square_sin
